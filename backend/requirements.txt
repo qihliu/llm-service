@@ -1,0 +1,28 @@
+# backend/requirements.txt
+#
+# These are the Python packages needed to run server.py.
+# Install them with: pip install -r requirements.txt
+#
+# vllm        — the inference engine; manages GPU/CPU memory, batching, KV-cache
+# fastapi     — the HTTP framework; handles routing, validation, serialization
+# uvicorn     — ASGI server that runs FastAPI (like gunicorn but async-native)
+# prometheus-client — creates and exposes Prometheus-format metrics
+# pydantic    — data validation (used by FastAPI for request/response schemas)
+
+# vllm is only needed for GPU/production deployments.
+# It is commented out here so the image builds on CPU for local development.
+# Uncomment it (and change the Dockerfile base image) for production.
+# vllm>=0.4.0
+
+# CPU inference — used when USE_VLLM=false (local dev default)
+# torch: the deep learning library that transformers runs on top of
+# transformers: HuggingFace's model library; pipeline() wraps models for easy use
+# --index-url installs the CPU-only build of torch (much smaller than the GPU build)
+torch>=2.2.0
+transformers>=4.40.0
+accelerate>=0.29.0   # required by transformers for some model loading paths
+
+fastapi>=0.110.0
+uvicorn>=0.29.0
+prometheus-client>=0.20.0
+pydantic>=2.0.0

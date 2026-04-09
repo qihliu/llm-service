@@ -1,0 +1,19 @@
+# prometheus.yaml
+#
+# This is Prometheus's configuration file.
+# It tells Prometheus:
+#   - How often to collect metrics (scrape_interval)
+#   - Where to collect them from (scrape_configs)
+#
+# Prometheus works by PULLING metrics from targets (pull model).
+# Your backend exposes /metrics; Prometheus fetches it periodically.
+
+global:
+  scrape_interval: 15s   # collect metrics every 15 seconds
+
+scrape_configs:
+  - job_name: "llm-backend"
+    # In Docker Compose, "backend" resolves to the backend container's IP.
+    # In Kubernetes, you'll change this to the Service name.
+    static_configs:
+      - targets: ["backend:8000"]   # <host>:<port> of the /metrics endpoint

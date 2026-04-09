@@ -1,0 +1,31 @@
+# k8s/kind-config.yaml
+#
+# kind (Kubernetes in Docker) runs a full K8s cluster inside Docker containers.
+# By default, NodePort services are only accessible inside Docker's network.
+# This config adds "extraPortMappings" so your Mac can reach them at localhost.
+#
+# Create the cluster with:
+#   kind create cluster --name llm --config k8s/kind-config.yaml
+#
+# Delete it with:
+#   kind delete cluster --name llm
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    # Map host (Mac) ports to container (kind node) ports.
+    # Format: hostPort → containerPort (= the nodePort in your Service)
+    extraPortMappings:
+      - containerPort: 30800   # backend API
+        hostPort: 30800
+        protocol: TCP
+      - containerPort: 30300   # OpenWebUI
+        hostPort: 30300
+        protocol: TCP
+      - containerPort: 30090   # Prometheus
+        hostPort: 30090
+        protocol: TCP
+      - containerPort: 30030   # Grafana
+        hostPort: 30030
+        protocol: TCP

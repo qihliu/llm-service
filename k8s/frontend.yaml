@@ -1,0 +1,59 @@
+# k8s/frontend.yaml
+#
+# Deploys OpenWebUI (the chat interface) in Kubernetes.
+# OpenWebUI is a pre-built image — we just configure it via env vars.
+#
+# Flow: User browser → NodePort 30300 → Service → Pod (OpenWebUI)
+#                                                      ↓
+#                                              calls backend Service at
+#                                              http://backend:8000/v1
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/open-webui/open-webui:main
+          ports:
+            - containerPort: 8080    # OpenWebUI listens on 8080 inside the container
+          env:
+            # "backend" here is the Kubernetes Service name defined in backend.yaml.
+            # Inside the cluster, K8s DNS resolves "backend" to the Service's ClusterIP.
+            - name: OPENAI_API_BASE_URL
+              value: "http://backend:8000/v1"
+            - name: WEBUI_SECRET_KEY
+              value: "change-me-in-production"
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "100m"
+            limits:
+              memory: "2Gi"
+              cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector:
+    app: frontend
+  type: NodePort
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30300    # access the chat UI at localhost:30300

@@ -1,0 +1,87 @@
+# docker-compose.yaml
+#
+# Docker Compose lets you run multiple containers together on your laptop.
+# Use this for local development before deploying to Kubernetes.
+#
+# Run everything:  docker compose up --build
+# Stop everything: docker compose down
+#
+# The four services here are:
+#   backend    — your vLLM FastAPI server
+#   frontend   — OpenWebUI (pre-built image, no code needed)
+#   prometheus — scrapes /metrics from backend every 15s
+#   grafana    — visualizes Prometheus data as dashboards
+
+services:
+
+  # ── 1. LLM Backend ───────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend   # use the Dockerfile inside ./backend/
+    ports:
+      - "8000:8000"        # host:container — access API at localhost:8000
+    environment:
+      # Change this to a different model without rebuilding the image
+      MODEL_NAME: facebook/opt-125m
+    # Share the HuggingFace model cache with the host so models aren't
+    # re-downloaded every time the container restarts.
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+    # healthcheck:
+    #   # Docker will call this every 30s. If it fails 3 times, the container
+    #   # is marked unhealthy and dependent services wait.
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    
+
+  # ── 2. OpenWebUI Frontend ─────────────────────────────────────────────────────
+  frontend:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"        # access the chat UI at localhost:3000
+    environment:
+      # Tell OpenWebUI where the backend API is.
+      # "backend" is the service name above — Docker resolves it to the container IP.
+      OPENAI_API_BASE_URL: http://backend:8000/v1
+      # A random string used to sign session cookies.
+      # Change this in production!
+      WEBUI_SECRET_KEY: change-me-in-production
+    depends_on:
+      backend:
+        condition: service_healthy   # wait until backend passes its healthcheck
+
+  # ── 3. Prometheus ─────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"        # access Prometheus UI at localhost:9090
+    volumes:
+      # Mount our prometheus config file into the container.
+      # The prometheus.yaml file tells Prometheus what to scrape.
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+
+  # ── 4. Grafana ────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"        # access Grafana at localhost:3001
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin   # default login: admin/admin
+    volumes:
+      - grafana_data:/var/lib/grafana     # persist dashboards across restarts
+
+# Named volumes — Docker manages these on your host.
+# They persist data even when containers are stopped/removed.
+volumes:
+  huggingface_cache:
+  grafana_data:

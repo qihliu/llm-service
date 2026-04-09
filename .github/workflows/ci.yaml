@@ -1,0 +1,127 @@
+# .github/workflows/ci.yaml
+#
+# This is a GitHub Actions workflow. It runs automatically in the cloud
+# on GitHub's servers whenever you push a commit or open a Pull Request.
+#
+# Key concepts:
+#   workflow  — this whole file; a collection of jobs
+#   job       — a group of steps that run on one machine
+#   step      — one shell command or a pre-built "action"
+#   action    — a reusable step shared by the community (e.g. actions/checkout)
+#
+# Secrets: sensitive values (passwords, tokens) stored in GitHub, not in code.
+#   Set them at: repo → Settings → Secrets and variables → Actions
+#   Reference them as: ${{ secrets.SECRET_NAME }}
+
+name: CI
+
+# When to run this workflow:
+on:
+  push:
+    branches: [main]        # on every push to main
+  pull_request:
+    branches: [main]        # on every PR targeting main
+
+jobs:
+
+  # ── Job 1: Lint ──────────────────────────────────────────────────────────────
+  # Checks code style without running the code.
+  lint:
+    runs-on: ubuntu-latest   # run on GitHub's Ubuntu machines (free)
+    steps:
+      # Check out your repo code onto the runner machine
+      - uses: actions/checkout@v4
+
+      # Set up Python
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Install ruff (a fast Python linter written in Rust)
+      - name: Install ruff
+        run: pip install ruff
+
+      # Run linting on the backend directory.
+      # ruff checks: unused imports, syntax errors, style violations, etc.
+      - name: Lint
+        run: ruff check backend/
+
+  # ── Job 2: Test ───────────────────────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    # This job runs after lint succeeds (fail fast: don't test if lint fails)
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Install only what tests actually need.
+      # We do NOT install torch or transformers — the tests mock them out,
+      # so the real packages are never imported. This keeps CI fast.
+      # httpx is required by FastAPI's TestClient internally.
+      - name: Install test dependencies
+        run: pip install fastapi uvicorn prometheus-client pydantic pytest httpx anyio
+
+      # Run the tests we wrote in test_server.py
+      - name: Run tests
+        run: pytest backend/test_server.py -v
+
+  # ── Job 3: Build and Push Docker Image ────────────────────────────────────────
+  # Only runs on pushes to main (not PRs) — we don't want to push images for
+  # every draft PR, only when code is merged.
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: test
+    # Skip this job on pull_request events; only run on push to main
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      # Log in to GitHub Container Registry (GHCR).
+      # GITHUB_TOKEN is automatically provided by GitHub Actions — no setup needed.
+      # It has permission to push images to your repo's package registry.
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}        # your GitHub username
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build the Docker image and push it to GHCR.
+      # We tag it with the short commit SHA (e.g. ghcr.io/you/llm-backend:abc1234)
+      # so every build has a unique, traceable tag.
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend          # path to the Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/llm-backend:latest
+            ghcr.io/${{ github.repository_owner }}/llm-backend:${{ github.sha }}
+
+  # ── Job 4: Deploy to Kubernetes ───────────────────────────────────────────────
+  # Updates the running deployment to use the newly built image.
+  # NOTE: This job requires your K8s cluster to be reachable from GitHub's runners.
+  # For a local kind cluster, skip this job and deploy manually.
+  # For a cloud cluster (GKE, EKS, etc.), uncomment and configure this job.
+  #
+  # deploy:
+  #   runs-on: ubuntu-latest
+  #   needs: build-and-push
+  #   if: github.event_name == 'push'
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     # Write the kubeconfig (cluster credentials) from a GitHub Secret
+  #     - name: Configure kubectl
+  #       run: |
+  #         mkdir -p ~/.kube
+  #         echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+  #
+  #     # Tell K8s to use the new image (triggers a rolling update)
+  #     - name: Deploy
+  #       run: |
+  #         kubectl set image deployment/backend \
+  #           backend=ghcr.io/${{ github.repository_owner }}/llm-backend:${{ github.sha }}

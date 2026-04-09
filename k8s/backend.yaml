@@ -1,0 +1,89 @@
+# k8s/backend.yaml
+#
+# This file defines two Kubernetes objects:
+#   Deployment — tells K8s to run N copies (replicas) of the backend container
+#   Service    — gives the Deployment a stable network address inside the cluster
+#
+# Apply with: kubectl apply -f k8s/backend.yaml
+# Delete with: kubectl delete -f k8s/backend.yaml
+#
+# The "---" separator lets you put multiple K8s objects in one file.
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+# A Deployment manages a set of identical Pods (running containers).
+# If a Pod crashes, the Deployment automatically restarts it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  replicas: 1          # run 1 copy for now; increase for horizontal scaling
+  selector:
+    matchLabels:
+      app: backend     # this Deployment manages Pods with label app=backend
+  template:
+    metadata:
+      labels:
+        app: backend   # every Pod gets this label
+    spec:
+      containers:
+        - name: backend
+          # LOCAL DEV: use the image loaded directly into kind via:
+          #   docker build -t llm-backend:local ./backend
+          #   kind load docker-image llm-backend:local --name llm
+          #
+          # PRODUCTION: change to the GHCR image pushed by CI:
+          #   image: ghcr.io/Hoshinanoriko/llm-backend:latest
+          #   (and remove imagePullPolicy: Never below)
+          image: llm-backend:local
+          # Never: don't try to pull from a registry — use the locally loaded image.
+          # This is required for kind local dev; remove for production.
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MODEL_NAME
+              value: "facebook/opt-125m"
+            # USE_VLLM=false → transformers backend (CPU, works in kind locally)
+            # Change to "true" for production with a GPU node
+            - name: USE_VLLM
+              value: "false"
+          # Liveness probe: K8s calls this every 30s.
+          # If it fails 3 times, the Pod is killed and restarted.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60    # wait 60s for model to load before checking
+            periodSeconds: 30
+          # Resource limits: prevents one Pod from consuming all cluster resources.
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"     # 500 millicores = half a CPU core
+            limits:
+              memory: "4Gi"
+              cpu: "2"
+
+---
+# ── Service ───────────────────────────────────────────────────────────────────
+# A Service gives a stable DNS name and IP to a set of Pods.
+# Without it, Pods get random IPs that change on restart.
+#
+# NodePort type exposes the service on a port of every cluster node,
+# so you can reach it from outside the cluster at localhost:<nodePort>.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend       # route traffic to Pods with label app=backend
+  type: NodePort
+  ports:
+    - port: 8000           # the port this Service listens on inside the cluster
+      targetPort: 8000     # the port on the Pod to forward traffic to
+      nodePort: 30800      # the port exposed on the node (accessible from host)
+                           # access at: localhost:30800 (with kind port mapping)

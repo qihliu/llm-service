@@ -89,17 +89,25 @@ jobs:
           username: ${{ github.actor }}        # your GitHub username
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Docker image names must be lowercase. github.repository_owner preserves
+      # the original casing (e.g. "Hoshinanoriko"), so we lowercase it here
+      # and store the result in GITHUB_OUTPUT for the next step to use.
+      - name: Set lowercase image name
+        id: image
+        run: |
+          echo "name=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/llm-backend" >> $GITHUB_OUTPUT
+
       # Build the Docker image and push it to GHCR.
-      # We tag it with the short commit SHA (e.g. ghcr.io/you/llm-backend:abc1234)
-      # so every build has a unique, traceable tag.
+      # Tagged twice: "latest" for convenience, and the commit SHA so every
+      # build is uniquely traceable (you can always find which code made which image).
       - name: Build and push backend image
         uses: docker/build-push-action@v5
         with:
-          context: ./backend          # path to the Dockerfile
+          context: ./backend
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/llm-backend:latest
-            ghcr.io/${{ github.repository_owner }}/llm-backend:${{ github.sha }}
+            ${{ steps.image.outputs.name }}:latest
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
 
   # ── Job 4: Deploy to Kubernetes ───────────────────────────────────────────────
   # Updates the running deployment to use the newly built image.

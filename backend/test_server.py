@@ -16,7 +16,7 @@ The mocking strategy is the same as before but targeting the vllm package:
 
 import os
 import sys
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 import pytest
 
 

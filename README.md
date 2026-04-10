@@ -117,14 +117,18 @@ Each commit SHA tag lets you trace exactly which code produced which image.
 ## Running Tests Locally
 
 ```bash
-# Activate the backend virtual environment
-source backend/.venv/bin/activate
+# Install test dependencies into the venv (first time only)
+backend/.venv/bin/pip install pytest httpx anyio
 
-# Run tests
-pytest backend/test_server.py -v
+# Run tests using the venv's Python directly.
+# This avoids Anaconda or system Python intercepting the command.
+backend/.venv/bin/python -m pytest backend/test_server.py -v
 ```
 
-The tests mock the ML model — they run in under 1 second without downloading anything.
+The tests mock both `torch` and `transformers` at the Python import level —
+neither package needs to be installed, and no model is downloaded.
+vLLM is also not required; the tests always run against the CPU/transformers path.
+Total runtime is under 1 second.
 
 ## Configuration
 

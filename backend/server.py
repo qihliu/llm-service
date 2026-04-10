@@ -35,7 +35,7 @@ from prometheus_client import Counter, Histogram, make_asgi_app
 # Read env var at startup to decide which inference backend to use.
 # os.getenv returns the value as a string, so we compare with "true".
 
-USE_VLLM = os.getenv("USE_VLLM", "false").lower() == "true"
+USE_VLLM = os.getenv("USE_VLLM", "true").lower() == "true"
 MODEL_NAME = os.getenv("MODEL_NAME", "facebook/opt-125m")
 
 if USE_VLLM:

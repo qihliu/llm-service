@@ -49,7 +49,7 @@ spec:
             # USE_VLLM=false → transformers backend (CPU, works in kind locally)
             # Change to "true" for production with a GPU node
             - name: USE_VLLM
-              value: "false"
+              value: "true"
           # Liveness probe: K8s calls this every 30s.
           # If it fails 3 times, the Pod is killed and restarted.
           livenessProbe:

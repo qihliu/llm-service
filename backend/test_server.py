@@ -3,53 +3,80 @@ backend/test_server.py
 
 Unit tests for the server's HTTP endpoints.
 
-The key challenge: server.py loads a real ML model on import, which takes
-minutes and requires heavy packages. Tests must be fast and package-light.
+Now that USE_VLLM defaults to "true", the server tries to import vllm at
+module load time. vllm is not installed in the test environment (it requires
+a GPU and is very large), so we must mock it out before importing server.py.
 
-Solution: before importing server.py, we replace the 'transformers' module
-in Python's import cache (sys.modules) with a fake object. When server.py
-runs 'from transformers import pipeline', Python finds our fake instead of
-the real library — so no model is ever downloaded or loaded.
+The mocking strategy is the same as before but targeting the vllm package:
+  1. Set USE_VLLM=true in the environment (matches the new default)
+  2. Inject fake vllm objects into sys.modules before importing server
+  3. Import server — it finds our fakes instead of the real library
+  4. Tests run against the real HTTP routing logic with a fake model
 """
 
 import os
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 import pytest
 
 
-# ── Step 1: Configure environment before importing server ────────────────────
-# These must be set BEFORE 'import server' because server.py reads them
-# at module load time (the top-level if/else block).
+# ── Step 1: Configure environment before importing server ─────────────────────
+# server.py reads USE_VLLM at module load time (the top-level if/else).
+# These must be set before `import server` or the wrong branch will run.
 
-os.environ["USE_VLLM"] = "false"          # use the transformers (CPU) path
-os.environ["MODEL_NAME"] = "test-model"   # a fake model name for tests
+os.environ["USE_VLLM"] = "true"
+os.environ["MODEL_NAME"] = "test-model"
 
 
-# ── Step 2: Mock the 'transformers' package ───────────────────────────────────
-# sys.modules is a dict Python checks before looking on disk for a package.
-# By putting a fake object here under "transformers", we prevent Python from
-# ever loading the real library — so torch and transformers don't need to be
-# installed for tests to run.
+# ── Step 2: Build a fake vllm module ─────────────────────────────────────────
+# vllm exposes three names that server.py imports:
+#   AsyncLLMEngine  — the engine class
+#   AsyncEngineArgs — dataclass holding engine config
+#   SamplingParams  — dataclass holding per-request generation settings
+#
+# server.py calls:
+#   AsyncEngineArgs(model=..., max_model_len=...)
+#   AsyncLLMEngine.from_engine_args(engine_args)
+#   engine.generate(prompt, sampling_params, request_id)  ← async generator
+#
+# We need engine.generate() to be an async generator that yields one fake
+# output object with the structure: output.outputs[0].text = "some text"
 
-def _fake_pipe(prompt, **kwargs):
+def _make_fake_output(text: str):
     """
-    Mimics what the real transformers pipeline returns.
-    The real pipeline returns the prompt + generated text concatenated,
-    e.g. input "Say hello" → output [{"generated_text": "Say hello world"}]
-    server.py strips the prompt prefix, leaving just " world".
+    Builds an object that looks like a vLLM RequestOutput.
+    The real structure is: output.outputs[0].text
+    MagicMock lets us set nested attributes freely.
     """
-    return [{"generated_text": prompt + " [mock response]"}]
+    output = MagicMock()
+    output.outputs[0].text = text
+    return output
 
-mock_transformers = MagicMock()
-mock_transformers.pipeline.return_value = MagicMock(side_effect=_fake_pipe)
-sys.modules["transformers"] = mock_transformers
-sys.modules["accelerate"] = MagicMock()   # transformers sometimes imports this
+async def _fake_generate(prompt, sampling_params, request_id):
+    """
+    Mimics AsyncLLMEngine.generate(), which is an async generator.
+    Yields one fake output — server.py keeps the last one, so one is enough.
+    """
+    yield _make_fake_output("[mock vllm response]")
+
+# Build the fake engine instance
+fake_engine = MagicMock()
+fake_engine.generate = _fake_generate   # attach our async generator
+
+# Build the fake vllm module
+mock_vllm = MagicMock()
+mock_vllm.AsyncEngineArgs = MagicMock(return_value=MagicMock())
+mock_vllm.AsyncLLMEngine.from_engine_args = MagicMock(return_value=fake_engine)
+mock_vllm.SamplingParams = MagicMock(return_value=MagicMock())
+
+# Inject into sys.modules — Python checks this dict before looking on disk.
+# When server.py runs `from vllm import AsyncLLMEngine, ...`, it finds our fake.
+sys.modules["vllm"] = mock_vllm
 
 
 # ── Step 3: Now it is safe to import server ───────────────────────────────────
-from fastapi.testclient import TestClient   # noqa: E402
-import server                               # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+import server                              # noqa: E402
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -57,8 +84,8 @@ import server                               # noqa: E402
 @pytest.fixture
 def client():
     """
-    TestClient wraps the FastAPI app and lets us send HTTP requests to it
-    in memory — no real network socket, no real port opened.
+    TestClient sends HTTP requests to the FastAPI app in memory —
+    no real network socket, no real port opened.
     """
     return TestClient(server.app)
 
@@ -66,17 +93,19 @@ def client():
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 def test_health_returns_ok(client):
-    """GET /health should return 200 with status=ok."""
+    """GET /health should return 200 with status=ok and backend=vllm."""
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    body = response.json()
+    assert body["status"] == "ok"
+    # Verify we're actually running the vllm path
+    assert body["backend"] == "vllm"
 
 
 def test_models_lists_the_configured_model(client):
     """
-    GET /v1/models should return the model name from the env var.
-    OpenWebUI calls this on startup — if it returns 404 or empty,
-    the UI shows 'No models available'.
+    GET /v1/models should return the model name set in MODEL_NAME env var.
+    OpenWebUI calls this on startup to populate the model dropdown.
     """
     response = client.get("/v1/models")
     assert response.status_code == 200
@@ -101,8 +130,7 @@ def test_chat_returns_assistant_message(client):
 def test_chat_requires_messages(client):
     """
     A request with no 'messages' field should return HTTP 422.
-    FastAPI validates this automatically from the Pydantic schema —
-    our code never even runs.
+    FastAPI validates this automatically from the Pydantic schema.
     """
     response = client.post("/v1/chat/completions", json={})
     assert response.status_code == 422

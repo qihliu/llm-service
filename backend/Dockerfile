@@ -51,7 +51,7 @@ COPY server.py .
 
 # Use the transformers (CPU) backend by default.
 # Set to "true" to use vLLM (requires GPU and vllm installed).
-ARG USE_VLLM=false
+ARG USE_VLLM=true
 ENV USE_VLLM=${USE_VLLM}
 
 ENV MODEL_NAME=facebook/opt-125m

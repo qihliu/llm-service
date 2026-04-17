@@ -42,6 +42,13 @@ spec:
               value: "v1"
             - name: USE_VLLM
               value: "false"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10   # start checking early; will fail until model loads
+            periodSeconds: 10
+            failureThreshold: 18      # allow up to 3 min for model to load (18 * 10s)
           livenessProbe:
             httpGet:
               path: /health

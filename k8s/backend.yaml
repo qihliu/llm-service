@@ -56,6 +56,13 @@ spec:
               value: "false"
           # Liveness probe: K8s calls this every 30s.
           # If it fails 3 times, the Pod is killed and restarted.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 18      # allow up to 3 min for model to load (18 * 10s)
           livenessProbe:
             httpGet:
               path: /health

@@ -105,15 +105,15 @@ port-forward-grafana:
 # Start canary: build and load the router, then deploy router + v1 + v2.
 # The router replaces the single backend Deployment behind the same Service.
 # Users select a model in OpenWebUI; the router dispatches to the right backend.
-#   facebook/opt-125m    → backend-v1 (stable)
-#   facebook/opt-125m-v2 → backend-v2 (canary)
+#   facebook/opt-125m  → backend-v1 (stable)
+#   facebook/opt-350m  → backend-v2 (canary)
 canary-deploy: build-router load-router
 	kubectl delete deployment backend --ignore-not-found
 	kubectl apply -f k8s/canary/backend-v1.yaml -f k8s/canary/backend-v2.yaml -f k8s/canary/router.yaml
 	@echo ""
 	@echo "Canary deployed (model-routing mode):"
-	@echo "  facebook/opt-125m    → backend-v1 (stable)"
-	@echo "  facebook/opt-125m-v2 → backend-v2 (canary)"
+	@echo "  facebook/opt-125m  → backend-v1 (stable)"
+	@echo "  facebook/opt-350m  → backend-v2 (canary)"
 	@echo "Select a model in OpenWebUI to route to a specific backend."
 
 # Roll BACK: remove v2 from the routing table, then scale it down.

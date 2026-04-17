@@ -7,7 +7,7 @@ to the correct backend — this is the OpenAI-style routing pattern.
 
 How it works:
   1. A user picks a model in OpenWebUI (e.g. "facebook/opt-125m-v2")
-  2. OpenWebUI sends POST /v1/chat/completions with {"model": "facebook/opt-125m-v2", ...}
+  2. OpenWebUI sends POST /v1/chat/completions with {"model": "facebook/opt-125m", ...}
   3. This router reads the "model" field and looks it up in ROUTES
   4. It proxies the entire request to the matching backend Service
   5. The backend response is returned unchanged
